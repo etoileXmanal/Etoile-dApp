@@ -10,5 +10,8 @@
     "express": "^4.19.2",
     "multer": "^2.0.2"
   },
+  "scripts":{
+    "dev":"nodemon server.js"
+  },
   "devDependencies": {}
 }

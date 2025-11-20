@@ -1,154 +1,235 @@
-// Home.tsx - Professional Clean Light UI
+// src/Home.tsx
+import React from "react";
+import { Link } from "react-router-dom";
 
-import { useWallet } from '@txnlab/use-wallet-react'
-import React, { useState } from 'react'
-import { AiOutlineDeploymentUnit, AiOutlineSend, AiOutlineStar, AiOutlineWallet } from 'react-icons/ai'
-import { BsArrowUpRightCircle, BsWallet2 } from 'react-icons/bs'
-
-// Frontend modals
-import AppCalls from './components/AppCalls'
-import ConnectWallet from './components/ConnectWallet'
-import NFTmint from './components/NFTmint'
-import Tokenmint from './components/Tokenmint'
-import Transact from './components/Transact'
-
-interface HomeProps {}
-
-const cardBase = 'rounded-xl shadow-md hover:shadow-lg transition border border-gray-200 bg-white'
-const iconStyle = 'text-3xl text-gray-700'
-
-const Home: React.FC<HomeProps> = () => {
-  const [openWalletModal, setOpenWalletModal] = useState<boolean>(false)
-  const [openPaymentModal, setOpenPaymentModal] = useState<boolean>(false)
-  const [openMintModal, setOpenMintModal] = useState<boolean>(false)
-  const [openTokenModal, setOpenTokenModal] = useState<boolean>(false)
-  const [openAppCallsModal, setOpenAppCallsModal] = useState<boolean>(false)
-
-  const { activeAddress } = useWallet()
-
+const Home: React.FC = () => {
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900 font-inter">
-      {/* Navbar */}
-      <nav className="w-full flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 flex items-center justify-center rounded-lg bg-indigo-600 text-white text-sm font-semibold">
-            A
-          </div>
-          <div className="font-semibold text-gray-800 tracking-wide">Algorand dApp Template</div>
-        </div>
-
-        <button
-          onClick={() => setOpenWalletModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition"
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "60px 16px",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        background:
+          "linear-gradient(135deg, #FECFF1 0%, #F27BAF 30%, #9B6FE2 100%)",
+        fontFamily: "Inter, system-ui, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 880,
+          background: "rgba(255,255,255,0.9)",
+          backdropFilter: "blur(14px)",
+          borderRadius: 26,
+          padding: "40px",
+          border: "1px solid #D0CFCF",
+          boxShadow: "0 16px 48px rgba(0, 0, 0, 0.15)",
+        }}
+      >
+        {/* Branding */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            marginBottom: 40,
+          }}
         >
-          <BsWallet2 className="text-white" />
-          {activeAddress ? 'Wallet Linked' : 'Connect Wallet'}
-        </button>
-      </nav>
-
-      {/* Hero */}
-      <header className="flex flex-col items-center text-center py-16 px-6">
-        <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full px-4 py-1 text-sm font-medium mb-5">
-          <AiOutlineWallet />
-          <span>Algorand Universal Actions</span>
-        </div>
-        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">
-          Build Faster with a Universal dApp Surface
-        </h1>
-        <p className="text-gray-600 max-w-xl mb-8">
-          Trigger common Algorand actions — payments, NFT minting, token creation, and contract calls — from a clean, unified interface.
-        </p>
-
-        {!activeAddress && (
-          <button
-            onClick={() => setOpenWalletModal(true)}
-            className="px-6 py-3 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 shadow-md transition"
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              background: "#BBF0ED",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 0 22px rgba(187,240,237,0.75)",
+            }}
           >
-            Connect Wallet to Get Started
-          </button>
-        )}
-      </header>
+            <span
+              style={{
+                fontSize: 34,
+                fontWeight: 900,
+                color: "#F27BAF",
+              }}
+            >
+              ★
+            </span>
+          </div>
 
-      {/* Features */}
-      <main id="features" className="flex-1 flex flex-col items-center px-6 pb-16">
-        {activeAddress ? (
-          <div className="w-full max-w-5xl">
-            <h2 className="text-xl font-semibold mb-6 text-gray-800">Available Actions</h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              <button
-                className={`${cardBase} flex flex-col items-start gap-3 p-5`}
-                onClick={() => setOpenPaymentModal(true)}
-              >
-                <div className="p-3 rounded-lg bg-indigo-100 text-indigo-700">
-                  <AiOutlineSend className={iconStyle} />
-                </div>
-                <div>
-                  <p className="text-base font-medium text-gray-900">Send Payment</p>
-                  <p className="text-sm text-gray-500">Transfer ALGO or assets.</p>
-                </div>
-              </button>
-
-              <button
-                className={`${cardBase} flex flex-col items-start gap-3 p-5`}
-                onClick={() => setOpenMintModal(true)}
-              >
-                <div className="p-3 rounded-lg bg-pink-100 text-pink-700">
-                  <AiOutlineStar className={iconStyle} />
-                </div>
-                <div>
-                  <p className="text-base font-medium text-gray-900">Mint NFT</p>
-                  <p className="text-sm text-gray-500">Create a simple NFT collection.</p>
-                </div>
-              </button>
-
-              <button
-                className={`${cardBase} flex flex-col items-start gap-3 p-5`}
-                onClick={() => setOpenTokenModal(true)}
-              >
-                <div className="p-3 rounded-lg bg-emerald-100 text-emerald-700">
-                  <BsArrowUpRightCircle className={iconStyle} />
-                </div>
-                <div>
-                  <p className="text-base font-medium text-gray-900">Create Token</p>
-                  <p className="text-sm text-gray-500">Spin up a new ASA instantly.</p>
-                </div>
-              </button>
-
-              <button
-                className={`${cardBase} flex flex-col items-start gap-3 p-5`}
-                onClick={() => setOpenAppCallsModal(true)}
-              >
-                <div className="p-3 rounded-lg bg-blue-100 text-blue-700">
-                  <AiOutlineDeploymentUnit className={iconStyle} />
-                </div>
-                <div>
-                  <p className="text-base font-medium text-gray-900">Contract Interactions</p>
-                  <p className="text-sm text-gray-500">Call ARC-4 or app methods.</p>
-                </div>
-              </button>
+          <div>
+            <div
+              style={{
+                fontSize: 30,
+                fontWeight: 800,
+                color: "#9B6FE2",
+                letterSpacing: "0.05em",
+              }}
+            >
+              ÉTOILE
+            </div>
+            <div style={{ fontSize: 14, opacity: 0.7 }}>
+              Digital Product Passport · Algorand dApp
             </div>
           </div>
-        ) : (
-          <div className="text-center mt-8 text-gray-600">
-            <p>Connect your wallet to access all actions.</p>
-          </div>
-        )}
-      </main>
+        </div>
 
-      {/* Footer */}
-      <footer className="w-full py-5 text-center text-sm text-gray-500 border-t border-gray-200 bg-white">
-        © {new Date().getFullYear()} Algorand Universal dApp Template. Built for clarity & speed.
-      </footer>
+        {/* Title */}
+        <div style={{ marginBottom: 30 }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 32,
+              fontWeight: 800,
+              color: "#4c3e6d",
+              letterSpacing: "-0.3px",
+            }}
+          >
+            Digital Product Passport for Fashion
+          </h1>
+          <p
+            style={{
+              margin: "10px 0 0",
+              fontSize: 16,
+              maxWidth: 580,
+              lineHeight: 1.7,
+              color: "#5e5b5b",
+            }}
+          >
+            A sustainability-driven Web3 experience on Algorand, enabling fashion brands and consumers to create transparent, secure, and eco-friendly Digital Product Passports.
+          </p>
+        </div>
 
-      {/* Modals */}
-      <ConnectWallet openModal={openWalletModal} closeModal={() => setOpenWalletModal(false)} />
-      <Transact openModal={openPaymentModal} setModalState={setOpenPaymentModal} />
-      <NFTmint openModal={openMintModal} setModalState={setOpenMintModal} />
-      <Tokenmint openModal={openTokenModal} setModalState={setOpenTokenModal} />
-      <AppCalls openModal={openAppCallsModal} setModalState={setOpenAppCallsModal} />
+        {/* Web3 / Algorand-style cards */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 20,
+            marginTop: 20,
+          }}
+        >
+          {/* DESIGNER PORTAL */}
+          <Link to="/designer" style={{ textDecoration: "none" }}>
+            <div
+              style={{
+                background:
+                  "linear-gradient(135deg, #FECFF1 0%, #F27BAF 45%, #9B6FE2 100%)",
+                padding: "18px",
+                borderRadius: 18,
+                height: 150,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                color: "#ffffff",
+                boxShadow: "0 6px 18px rgba(155,111,226,0.22)",
+                border: "1px solid rgba(255,255,255,0.22)",
+                transition: "0.25s ease",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLDivElement).style.transform =
+                  "translateY(-3px)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow =
+                  "0 8px 26px rgba(155,111,226,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLDivElement).style.transform =
+                  "translateY(0px)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow =
+                  "0 6px 18px rgba(155,111,226,0.22)";
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, opacity: 0.85 }}>For Designers</div>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    marginTop: 2,
+                  }}
+                >
+                  Designer Portal
+                </div>
+              </div>
+
+              <p
+                style={{
+                  fontSize: 13,
+                  margin: 0,
+                  opacity: 0.95,
+                  lineHeight: 1.4,
+                }}
+              >
+                Design your unique fashion piece and create a Digital Product Passport
+      that verifies its origin, materials, and sustainability.
+              </p>
+            </div>
+          </Link>
+
+          {/* CONSUMER PORTAL */}
+          <Link to="/consumer" style={{ textDecoration: "none" }}>
+            <div
+              style={{
+                background:
+                  "linear-gradient(135deg, #BBF0ED 0%, #9B6FE2 45%, #F27BAF 100%)",
+                padding: "18px",
+                borderRadius: 18,
+                height: 150,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                color: "#ffffff",
+                boxShadow: "0 6px 18px rgba(155,111,226,0.22)",
+                border: "1px solid rgba(255,255,255,0.22)",
+                transition: "0.25s ease",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLDivElement).style.transform =
+                  "translateY(-3px)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow =
+                  "0 8px 26px rgba(155,111,226,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLDivElement).style.transform =
+                  "translateY(0px)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow =
+                  "0 6px 18px rgba(155,111,226,0.22)";
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, opacity: 0.85 }}>For Consumers</div>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    marginTop: 2,
+                  }}
+                >
+                  Consumer Portal
+                </div>
+              </div>
+
+              <p
+                style={{
+                  fontSize: 13,
+                  margin: 0,
+                  opacity: 0.95,
+                  lineHeight: 1.4,
+                }}
+              >
+                Discover products with verified Digital Passports ensuring transparency,
+      sustainability, fair labor practices, and secure ownership history on
+      Algorand.
+              </p>
+            </div>
+          </Link>
+        </div>
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default Home
+export default Home;

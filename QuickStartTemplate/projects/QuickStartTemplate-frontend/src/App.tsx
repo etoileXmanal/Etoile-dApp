@@ -1,60 +1,50 @@
-import { SupportedWallet, WalletId, WalletManager, WalletProvider } from '@txnlab/use-wallet-react'
-import { SnackbarProvider } from 'notistack'
-import Home from './Home'
-import { getAlgodConfigFromViteEnvironment, getKmdConfigFromViteEnvironment } from './utils/network/getAlgoClientConfigs'
-import { Analytics } from '@vercel/analytics/react'
+// src/App.tsx
 
-let supportedWallets: SupportedWallet[]
-if (import.meta.env.VITE_ALGOD_NETWORK === 'localnet') {
-  const kmdConfig = getKmdConfigFromViteEnvironment()
-  supportedWallets = [
-    {
-      id: WalletId.KMD,
-      options: {
-        baseServer: kmdConfig.server,
-        token: String(kmdConfig.token),
-        port: String(kmdConfig.port),
-      },
-    },
-    { id: WalletId.LUTE },
-  ]
-} else {
-  supportedWallets = [
-    { id: WalletId.DEFLY },
-    { id: WalletId.PERA },
-    { id: WalletId.EXODUS },
-    { id: WalletId.LUTE },
-    // If you are interested in WalletConnect v2 provider
-    // refer to https://github.com/TxnLab/use-wallet for detailed integration instructions
-  ]
-}
+import React from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
-export default function App() {
-  const algodConfig = getAlgodConfigFromViteEnvironment()
+import Consumer from "./Consumer";
+import Designer from "./Designer";
+import Home from "./Home";
 
-  const walletManager = new WalletManager({
-    wallets: supportedWallets,
-    defaultNetwork: algodConfig.network,
-    networks: {
-      [algodConfig.network]: {
-        algod: {
-          baseServer: algodConfig.server,
-          port: algodConfig.port,
-          token: String(algodConfig.token),
-        },
-      },
-    },
-    options: {
-      resetNetwork: true,
-    },
-  })
+import AppCalls from "./components/AppCalls";
+import ErrorBoundary from "./components/ErrorBoundary";
+import NFTmint from "./components/NFTmint";
+import Tokenmint from "./components/Tokenmint";
+import Transact from "./components/Transact";
 
+import {
+  NetworkId,
+  WalletId,
+  WalletManager,
+  WalletProvider,
+} from "@txnlab/use-wallet-react";
+
+const walletManager = new WalletManager({
+  wallets: [WalletId.PERA, WalletId.DEFLY, WalletId.EXODUS],
+  defaultNetwork: NetworkId.TESTNET,
+});
+
+const App: React.FC = () => {
   return (
-    <SnackbarProvider maxSnack={3}>
+    <ErrorBoundary>
       <WalletProvider manager={walletManager}>
-        <Home />
-        <Analytics />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/designer" element={<Designer />} />
+            <Route path="/consumer" element={<Consumer />} />
+
+            {/* original templates */}
+            <Route path="/transact" element={<Transact />} />
+            <Route path="/tokenmint" element={<Tokenmint />} />
+            <Route path="/nftmint" element={<NFTmint />} />
+            <Route path="/appcalls" element={<AppCalls />} />
+          </Routes>
+        </BrowserRouter>
       </WalletProvider>
-    </SnackbarProvider>
-  )
-}
+    </ErrorBoundary>
+  );
+};
+
+export default App;
