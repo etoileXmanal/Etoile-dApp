@@ -35,24 +35,28 @@ const Consumer: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<ConsumerItem | null>(null);
   const [purchaseComplete, setPurchaseComplete] = useState<string | null>(null);
 
+  // 👇 هنا بنعرض الـ Atomic group كديمو ل Session 6
   const [atomicOps, setAtomicOps] = useState<AtomicOp[] | null>(null);
 
+  // تحميل البيانات من localStorage أو إنشاء عينات افتراضية
   useEffect(() => {
     try {
       const saved = localStorage.getItem("etoile_recent_designs");
       if (saved) {
         const parsed: StoredDesign[] = JSON.parse(saved);
 
+        // نعرض فقط القطع اللي فعلاً لها NFT (assetId)
         const minted = parsed.filter((d) => d.assetId);
 
         const withPrices: ConsumerItem[] =
           minted.length > 0
             ? minted.map((d, idx) => ({
                 ...d,
-                priceDusd: 40 + idx * 5,
+                priceDusd: 40 + idx * 5, // أسعار بسيطة للتجربة
               }))
             : [];
 
+        // لو ما فيه بيانات من المصمم، نحط عينات Demo عشان البرزنتيشن
         if (withPrices.length === 0) {
           const demo: ConsumerItem[] = [
             {
@@ -102,6 +106,7 @@ const Consumer: React.FC = () => {
     setSelectedItem(item);
     setPurchaseComplete(null);
 
+    // 🔁 هنا نكوّن الـ "Atomic Group" كديمو
     const buyer = activeAddress || "BuyerWallet";
     const seller = "Designer / Escrow Wallet";
 
@@ -128,6 +133,7 @@ const Consumer: React.FC = () => {
   const handleSimulatePurchase = () => {
     if (!selectedItem) return;
 
+    // هنا نظهر رسالة تأكيد، وكأن الـ Atomic group تم تنفيذها بنجاح
     setPurchaseComplete(
       `Atomic transfer completed (demo): dUSD payment + NFT passport transfer for "${selectedItem.garmentName}".`
     );
@@ -559,7 +565,7 @@ const Consumer: React.FC = () => {
                     </a>
                   )}
 
-                  {/* Atomic Transfer Demo */}
+                  {/* 🔁 Atomic Transfer Demo (Session 6) */}
                   {atomicOps && (
                     <div
                       style={{
@@ -603,7 +609,10 @@ const Consumer: React.FC = () => {
                               </span>
                             )}
                             {op.asset && (
-                              <span> – NFT #{op.asset}</span>
+                              <span>
+                                {" "}
+                                – NFT #{op.asset}
+                              </span>
                             )}
                           </li>
                         ))}
