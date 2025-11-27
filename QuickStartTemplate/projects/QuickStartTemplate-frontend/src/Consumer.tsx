@@ -10,477 +10,948 @@ import { algo, AlgorandClient } from "@algorandfoundation/algokit-utils";
 import { getAlgodConfigFromViteEnvironment } from "./utils/network/getAlgoClientConfigs";
 
 interface StoredDesign {
-id: number;
-garmentName: string;
-createdAt?: string;
-assetId?: number;
-imageUrl?: string;
+  id: number;
+  garmentName: string;
+  createdAt?: string;
+  assetId?: number;
+  imageUrl?: string; // optional image from designer page (if stored later)
 }
 
 interface ConsumerItem extends StoredDesign {
-priceDusd: number;
+  priceDusd: number; // demo price label
 }
 
 interface AtomicOp {
-id: number;
-label: string;
+  id: number;
+  label: string;
 }
 
 type PaymentType = "ALGO" | "DUSD" | "BOTH";
 
-interface PurchaseRecord {
-wallet: string;
-itemId: number;
-paymentType: PaymentType;
-timestamp: string;
+interface ConsumerStats {
+  totalItems: number; // عدد القطع التي تم شراؤها (كل عملية شراء = قطعة)
 }
 
-interface ConsumerStats {
-totalItems: number;
+interface PurchaseRecord {
+  wallet: string;
+  itemId: number;
+  paymentType: PaymentType;
+  algoAmount: number;
+  dusdAmount: number;
+  txId?: string;
+  timestamp: string;
 }
 
 const LORA = "https://lora.algokit.io/testnet";
 const STATS_KEY = "etoile_consumer_purchases";
 
+// USDC TestNet ASA (used as dUSD in the demo)
 const DUSD_ASA_ID = 10458941n;
 const DUSD_DECIMALS = 6;
 
-// ---------------------------------------
-// Save purchase (always +1 item)
-// ---------------------------------------
-function recordPurchase(wallet: string, item: ConsumerItem, paymentType: PaymentType) {
-try {
-const raw = localStorage.getItem(STATS_KEY);
-const list: PurchaseRecord[] = raw ? JSON.parse(raw) : [];
+// ---------- helpers: stats ----------
+function recordPurchase(
+  wallet: string,
+  item: ConsumerItem,
+  paymentType: PaymentType,
+  txId?: string
+) {
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    const list: PurchaseRecord[] = raw ? JSON.parse(raw) : [];
 
-list.push({
-wallet,
-itemId: item.id,
-paymentType,
-timestamp: new Date().toISOString(),
-});
+    let algoAmount = 0;
+    let dusdAmount = 0;
 
-localStorage.setItem(STATS_KEY, JSON.stringify(list));
-} catch (e) {
-console.error("Failed to record purchase", e);
+    if (paymentType === "ALGO") {
+      algoAmount = 1;
+    } else if (paymentType === "DUSD") {
+      dusdAmount = 1;
+    } else if (paymentType === "BOTH") {
+      algoAmount = 1;
+      dusdAmount = 1;
+    }
+
+    list.push({
+      wallet,
+      itemId: item.id,
+      paymentType,
+      algoAmount,
+      dusdAmount,
+      txId,
+      timestamp: new Date().toISOString(),
+    });
+    localStorage.setItem(STATS_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error("Failed to record purchase", e);
+  }
 }
-}
 
-// ---------------------------------------
-// Load stats (count only)
-// ---------------------------------------
 function loadStats(wallet: string | null | undefined): ConsumerStats {
-if (!wallet) return { totalItems: 0 };
-try {
-const raw = localStorage.getItem(STATS_KEY);
-const list: PurchaseRecord[] = raw ? JSON.parse(raw) : [];
-const mine = list.filter((r) => r.wallet === wallet);
-return {
-totalItems: mine.length,
-};
-} catch {
-return { totalItems: 0 };
-}
+  if (!wallet) return { totalItems: 0 };
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    const list: PurchaseRecord[] = raw ? JSON.parse(raw) : [];
+    const mine = list.filter((r) => r.wallet === wallet);
+    return { totalItems: mine.length };
+  } catch (e) {
+    console.error("Failed to load stats", e);
+    return { totalItems: 0 };
+  }
 }
 
 const Consumer: React.FC = () => {
-const { activeAddress, transactionSigner } = useWallet();
-const connected = Boolean(activeAddress && transactionSigner);
+  const { activeAddress, transactionSigner } = useWallet();
+  const connected = Boolean(activeAddress && transactionSigner);
 
-const [walletModalOpen, setWalletModalOpen] = useState(false);
-const [items, setItems] = useState<ConsumerItem[]>([]);
-const [selectedItem, setSelectedItem] = useState<ConsumerItem | null>(null);
-const [selectedPayment, setSelectedPayment] = useState<PaymentType>("ALGO");
-const [purchaseComplete, setPurchaseComplete] = useState<string | null>(null);
-const [stats, setStats] = useState<ConsumerStats>({ totalItems: 0 });
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [items, setItems] = useState<ConsumerItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<ConsumerItem | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentType>("ALGO");
+  const [atomicOps, setAtomicOps] = useState<AtomicOp[] | null>(null);
+  const [sending, setSending] = useState(false);
 
-const [atomicOps, setAtomicOps] = useState<AtomicOp[] | null>(null);
-const [sending, setSending] = useState(false);
+  const [stats, setStats] = useState<ConsumerStats>({ totalItems: 0 });
+  const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
 
-const algodConfig = getAlgodConfigFromViteEnvironment();
-const algorand = AlgorandClient.fromConfig({ algodConfig });
+  // Algorand client
+  const algodConfig = getAlgodConfigFromViteEnvironment();
+  const algorand = AlgorandClient.fromConfig({ algodConfig });
 
+  // ---------- Load designs from localStorage + static demo products ----------
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("etoile_recent_designs");
+      let dynamicItems: ConsumerItem[] = [];
 
-// ---------------------------------------
-// Load items from localStorage
-// ---------------------------------------
-useEffect(() => {
-try {
-const saved = localStorage.getItem("etoile_recent_designs");
-if (saved) {
-const parsed: StoredDesign[] = JSON.parse(saved);
-const minted = parsed.filter((d) => d.assetId);
+      if (saved) {
+        const parsed: StoredDesign[] = JSON.parse(saved);
+        const minted = parsed.filter((d) => d.assetId);
 
-if (minted.length) {
-const withPrices: ConsumerItem[] = minted.map((d, idx) => ({
-...d,
-priceDusd: 40 + idx * 5,
-}));
-setItems(withPrices);
-} else {
-setItems([
-{
-id: 1,
-garmentName: "Étoile Linen Blazer",
-createdAt: "Demo • Not on-chain",
-assetId: 123456,
-priceDusd: 49,
-},
-]);
-}
-} else {
-setItems([
-{
-id: 1,
-garmentName: "Étoile Linen Blazer",
-createdAt: "Demo • Not on-chain",
-assetId: 123456,
-priceDusd: 49,
-},
-]);
-}
-} catch {}
-}, []);
+        dynamicItems = minted.map((d) => ({
+          ...d,
+          priceDusd: 49, // نفس السعر الديمو
+        }));
+      }
 
-// ---------------------------------------
-// Load stats
-// ---------------------------------------
-useEffect(() => {
-setStats(loadStats(activeAddress));
-}, [activeAddress]);
+      // ديمو ثابت يضمن أن اللجنة تشوف منتجات وصور حتى لو ما في مصمم
+      const demoItems: ConsumerItem[] = [
+        {
+          id: 1001,
+          garmentName: "Hot Pink Heels",
+          createdAt: "Demo • Not on-chain",
+          assetId: 111111,
+          priceDusd: 49,
+          imageUrl: "/demo-heels.png", // ضع الصورة في public
+        },
+        {
+          id: 1002,
+          garmentName: "Cream Midi Skirt",
+          createdAt: "Demo • Not on-chain",
+          assetId: 222222,
+          priceDusd: 59,
+          imageUrl: "/demo-skirt.png",
+        },
+        {
+          id: 1003,
+          garmentName: "Gradient Jersey Tee",
+          createdAt: "Demo • Not on-chain",
+          assetId: 333333,
+          priceDusd: 69,
+          imageUrl: "/demo-jersey.png",
+        },
+      ];
 
+      // أولاً المنتجات الحقيقية من المصمم (إن وجدت)، بعدها الديمو
+      const combined =
+        dynamicItems.length > 0 ? [...dynamicItems, ...demoItems] : demoItems;
 
-// ---------------------------------------
-// Checkout modal logic
-// ---------------------------------------
-const handleOpenCheckout = (item: ConsumerItem, payment: PaymentType) => {
-setSelectedItem(item);
-setSelectedPayment(payment);
-setPurchaseComplete(null);
+      setItems(combined);
+    } catch (e) {
+      console.error("Failed to load designs for consumer view", e);
+    }
+  }, []);
 
-const ops: AtomicOp[] = [];
+  // ---------- Load stats for current wallet ----------
+  useEffect(() => {
+    const s = loadStats(activeAddress);
+    setStats(s);
+  }, [activeAddress]);
 
-if (payment === "ALGO") {
-ops.push({ id: 1, label: "Self-payment 1 ALGO" });
-} else if (payment === "DUSD") {
-ops.push({ id: 1, label: "Self-payment 1 dUSD" });
-} else {
-ops.push({ id: 1, label: "Self-payment 1 ALGO" });
-ops.push({ id: 2, label: "Self-payment 1 dUSD" });
-}
+  const handleOpenCheckout = (item: ConsumerItem, paymentType: PaymentType) => {
+    setSelectedItem(item);
+    setSelectedPayment(paymentType);
+    setPurchaseMessage(null);
 
-ops.push({
-id: ops.length + 1,
-label: "Self-transfer NFT passport",
-});
+    const ops: AtomicOp[] = [];
 
-setAtomicOps(ops);
-};
+    if (paymentType === "ALGO") {
+      ops.push({
+        id: 1,
+        label: "Self-payment of 1 ALGO (POC: buyer = seller wallet)",
+      });
+      ops.push({
+        id: 2,
+        label: "Self-transfer of NFT passport to the same wallet",
+      });
+    } else if (paymentType === "DUSD") {
+      ops.push({
+        id: 1,
+        label: "Self-payment of 1 dUSD (USDC TestNet ASA)",
+      });
+      ops.push({
+        id: 2,
+        label: "Self-transfer of NFT passport to the same wallet",
+      });
+    } else if (paymentType === "BOTH") {
+      ops.push({
+        id: 1,
+        label: "Self-payment of 1 ALGO",
+      });
+      ops.push({
+        id: 2,
+        label: "Self-payment of 1 dUSD (USDC TestNet ASA)",
+      });
+      ops.push({
+        id: 3,
+        label: "Self-transfer of NFT passport to the same wallet",
+      });
+    }
 
-// ---------------------------------------
-// Send actual atomic transfer
-// ---------------------------------------
-const handleConfirmAtomicPurchase = async () => {
-if (!selectedItem?.assetId) return;
-if (!activeAddress || !transactionSigner) return;
+    setAtomicOps(ops);
+  };
 
-setSending(true);
+  // Real Atomic Transfer on TestNet (POC: buyer = seller = same wallet)
+  const handleConfirmAtomicPurchase = async () => {
+    if (!selectedItem || !selectedItem.assetId) {
+      alert("Missing NFT asset ID for this item.");
+      return;
+    }
+    if (!activeAddress || !transactionSigner) {
+      alert("Please connect your wallet first.");
+      return;
+    }
 
-try {
-const wallet = activeAddress;
-const group = algorand.newGroup();
+    setSending(true);
+    try {
+      const wallet = activeAddress;
+      const group = algorand.newGroup();
 
-if (selectedPayment === "ALGO") {
-group.addPayment({
-signer: transactionSigner,
-sender: wallet,
-receiver: wallet,
-amount: algo(1),
-});
-} else if (selectedPayment === "DUSD") {
-const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
-group.addAssetTransfer({
-signer: transactionSigner,
-sender: wallet,
-receiver: wallet,
-assetId: DUSD_ASA_ID,
-amount: oneDusd,
-});
-} else {
-group.addPayment({
-signer: transactionSigner,
-sender: wallet,
-receiver: wallet,
-amount: algo(1),
-});
-const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
-group.addAssetTransfer({
-signer: transactionSigner,
-sender: wallet,
-receiver: wallet,
-assetId: DUSD_ASA_ID,
-amount: oneDusd,
-});
-}
+      if (selectedPayment === "ALGO") {
+        group.addPayment({
+          signer: transactionSigner,
+          sender: wallet,
+          receiver: wallet,
+          amount: algo(1),
+        });
+      } else if (selectedPayment === "DUSD") {
+        const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
+        group.addAssetTransfer({
+          signer: transactionSigner,
+          sender: wallet,
+          receiver: wallet,
+          assetId: DUSD_ASA_ID,
+          amount: oneDusd,
+        });
+      } else if (selectedPayment === "BOTH") {
+        group.addPayment({
+          signer: transactionSigner,
+          sender: wallet,
+          receiver: wallet,
+          amount: algo(1),
+        });
+        const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
+        group.addAssetTransfer({
+          signer: transactionSigner,
+          sender: wallet,
+          receiver: wallet,
+          assetId: DUSD_ASA_ID,
+          amount: oneDusd,
+        });
+      }
 
-group.addAssetTransfer({
-signer: transactionSigner,
-sender: wallet,
-receiver: wallet,
-assetId: BigInt(selectedItem.assetId),
-amount: 1n,
-});
+      // NFT self-transfer
+      group.addAssetTransfer({
+        signer: transactionSigner,
+        sender: wallet,
+        receiver: wallet,
+        assetId: BigInt(selectedItem.assetId),
+        amount: 1n,
+      });
 
-await group.send();
+      const result = await group.send();
+      const firstTx = result?.txIds?.[0];
 
-// ---------------------------------------
-// SUCCESS → show simple message
-// ---------------------------------------
-setPurchaseComplete("success");
+      let label = "";
+      if (selectedPayment === "ALGO") label = "1 ALGO";
+      else if (selectedPayment === "DUSD") label = "1 dUSD";
+      else label = "1 ALGO + 1 dUSD";
 
-// Save stats (+1 item)
-recordPurchase(activeAddress, selectedItem, selectedPayment);
-setStats(loadStats(activeAddress));
-} catch (e) {
-console.error(e);
-alert("Atomic transfer failed.");
-}
+      setPurchaseMessage(
+        `Success: Atomic transfer completed for "${selectedItem.garmentName}" – ${label} + NFT passport in one group. TxID: ${firstTx}`
+      );
 
-setSending(false);
-};
+      // Update stats
+      recordPurchase(activeAddress!, selectedItem, selectedPayment, firstTx);
+      const s = loadStats(activeAddress);
+      setStats(s);
 
-const paymentLabel =
-selectedPayment === "ALGO"
-? "1 ALGO"
-: selectedPayment === "DUSD"
-? "1 dUSD"
-: "1 ALGO + 1 dUSD";
+      // close modal
+      setSelectedItem(null);
+      setAtomicOps(null);
+    } catch (e) {
+      console.error(e);
+      alert(
+        "Atomic transfer failed. Make sure your wallet has enough ALGO for fees and is opted into USDC (ASA 10458941) if you are using dUSD."
+      );
+    }
+    setSending(false);
+  };
 
-return (
-<div
-style={{
-minHeight: "100vh",
-padding: "40px 16px 60px",
-background: "linear-gradient(135deg, #FECFF1, #BBF0ED, #9B6FE2)",
-fontFamily: "Inter",
-display: "flex",
-justifyContent: "center",
-}}
->
-<div
-style={{
-width: "100%",
-maxWidth: 1040,
-background: "white",
-borderRadius: 26,
-padding: 32,
-}}
->
-<BackToHomeButton />
+  const paymentLabel =
+    selectedPayment === "ALGO"
+      ? "1 ALGO"
+      : selectedPayment === "DUSD"
+      ? "1 dUSD"
+      : "1 ALGO + 1 dUSD";
 
-{/* Header */}
-<header
-style={{
-display: "flex",
-justifyContent: "space-between",
-marginBottom: 24,
-}}
->
-<div>
-<h1 style={{ margin: 0, fontSize: 26, fontWeight: 800 }}>
-Consumer Marketplace (POC)
-</h1>
-</div>
+  const qrUrl = selectedItem
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(
+        `Etoile dApp | POC | asset=${selectedItem.assetId} | payment=${paymentLabel}`
+      )}`
+    : "";
 
-<button
-onClick={() => setWalletModalOpen(true)}
-style={{
-padding: "8px 16px",
-borderRadius: 999,
-border: "none",
-background: connected ? "#9B6FE2" : "#F27BAF",
-color: "white",
-}}
->
-{connected ? "Wallet Connected" : "Connect Wallet"}
-</button>
-</header>
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "40px 16px 60px",
+        background: "linear-gradient(135deg, #FECFF1, #BBF0ED, #9B6FE2)",
+        fontFamily: "Inter, system-ui, sans-serif",
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 1040,
+          background: "rgba(255,255,255,0.96)",
+          borderRadius: 26,
+          padding: "32px",
+          border: "1px solid #D0CFCF",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
+        }}
+      >
+        {/* Back to landing */}
+        <BackToHomeButton />
 
-<ConnectWallet
-openModal={walletModalOpen}
-closeModal={() => setWalletModalOpen(false)}
-/>
+        {/* Success banner (always on top) */}
+        {purchaseMessage && (
+          <div
+            style={{
+              marginTop: 16,
+              marginBottom: 16,
+              padding: "10px 14px",
+              borderRadius: 18,
+              border: "1px solid rgba(37,99,235,0.25)",
+              background: "rgba(239,246,255,0.95)",
+              fontSize: 13,
+              color: "#1d4ed8",
+            }}
+          >
+            {purchaseMessage}
+          </div>
+        )}
 
-{/* Stats */}
-<div
-style={{
-marginBottom: 16,
-padding: 12,
-borderRadius: 16,
-background: "#F9FAFB",
-border: "1px solid #E5E7EB",
-fontSize: 14,
-}}
->
-Total items purchased:{" "}
-<span style={{ fontWeight: 700 }}>{stats.totalItems}</span>
-</div>
+        {/* Header */}
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 24,
+            flexWrap: "wrap",
+            gap: 16,
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 26,
+                fontWeight: 800,
+                color: "#4c3e6d",
+              }}
+            >
+              Consumer Marketplace (POC)
+            </h1>
+            <p style={{ fontSize: 14, color: "#6b6a6a", marginTop: 4 }}>
+              Buyer and seller use the same wallet on Algorand TestNet. We only
+              showcase atomic grouping and wallet tracking in this phase.
+            </p>
+          </div>
 
-{/* Products */}
-<div
-style={{
-display: "grid",
-gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-gap: 18,
-}}
->
-{items.map((item) => (
-<div
-key={item.id}
-style={{
-padding: 14,
-borderRadius: 16,
-border: "1px solid #E5E7EB",
-background: "white",
-}}
->
-<div style={{ fontWeight: 700 }}>{item.garmentName}</div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 8,
+            }}
+          >
+            <button
+              onClick={() => {
+                window.open("https://faucet.circle.com/", "_blank");
+              }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 999,
+                border: "1px solid #E5E7EB",
+                cursor: "pointer",
+                background: "#ffffff",
+                color: "#4b5563",
+                fontWeight: 500,
+                fontSize: 11,
+                marginBottom: 4,
+              }}
+            >
+              Get Test USDC & ALGO ↗️
+            </button>
 
-<div style={{ marginTop: 10 }}>
-<button
-style={{
-padding: "8px 12px",
-borderRadius: 999,
-background: "#4F46E5",
-color: "white",
-width: "100%",
-marginBottom: 6,
-}}
-onClick={() => handleOpenCheckout(item, "ALGO")}
->
-Buy with 1 ALGO
-</button>
+            <button
+              onClick={() => setWalletModalOpen(true)}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: "none",
+                cursor: "pointer",
+                background: connected
+                  ? "linear-gradient(135deg, #9B6FE2, #BBF0ED)"
+                  : "linear-gradient(135deg, #BBF0ED, #F27BAF)",
+                color: "#fff",
+                fontWeight: 600,
+                fontSize: 13,
+                boxShadow: "0 6px 18px rgba(155,111,226,0.35)",
+              }}
+            >
+              {connected ? "Wallet Connected" : "Connect Wallet"}
+            </button>
+            {activeAddress && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "#777",
+                  maxWidth: 220,
+                  textAlign: "right",
+                  wordBreak: "break-all",
+                }}
+              >
+                {activeAddress}
+              </span>
+            )}
+          </div>
+        </header>
 
-<button
-style={{
-padding: "8px 12px",
-borderRadius: 999,
-background: "white",
-border: "1px solid #9B6FE2",
-color: "#6b21a8",
-width: "100%",
-marginBottom: 6,
-}}
-onClick={() => handleOpenCheckout(item, "DUSD")}
->
-Buy with 1 dUSD
-</button>
+        <ConnectWallet
+          openModal={walletModalOpen}
+          closeModal={() => setWalletModalOpen(false)}
+        />
 
-<button
-style={{
-padding: "8px 12px",
-borderRadius: 999,
-border: "1px dashed #F97316",
-background: "#FFFBEB",
-width: "100%",
-}}
-onClick={() => handleOpenCheckout(item, "BOTH")}
->
-Atomic: 1 ALGO + 1 dUSD
-</button>
-</div>
-</div>
-))}
-</div>
+        {/* Stats */}
+        <section
+          style={{
+            display: "flex",
+            gap: 12,
+            marginBottom: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div
+            style={{
+              flex: "0 0 180px",
+              padding: "10px 12px",
+              borderRadius: 16,
+              background: "rgba(249,250,251,0.95)",
+              border: "1px solid #E5E7EB",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ color: "#6b7280" }}>Items purchased (POC)</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
+              {stats.totalItems}
+            </div>
+          </div>
+        </section>
 
+        {/* Banner */}
+        <section
+          style={{
+            marginBottom: 20,
+            padding: "10px 14px",
+            borderRadius: 16,
+            background:
+              "linear-gradient(120deg, rgba(254,207,241,0.5), rgba(187,240,237,0.5))",
+            border: "1px solid rgba(208,207,207,0.6)",
+            fontSize: 13,
+            color: "#4c3e6d",
+          }}
+        >
+          In this POC, the same TestNet wallet plays the role of both consumer
+          and designer. The focus is on demonstrating Atomic Transfers and
+          tracking simulated spending.
+        </section>
 
+        {/* Product grid */}
+        <section>
+          {items.length === 0 ? (
+            <p style={{ fontSize: 14, color: "#777" }}>
+              No designs available yet. Once designers mint their passports,
+              they will appear here.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: 18,
+              }}
+            >
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    borderRadius: 18,
+                    border: "1px solid #E5E7EB",
+                    padding: 14,
+                    background: "linear-gradient(145deg, #ffffff, #F9FAFB)",
+                    boxShadow: "0 6px 16px rgba(0,0,0,0.04)",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    minHeight: 220,
+                  }}
+                >
+                  <div>
+                    {item.imageUrl && (
+                      <img
+                        src={item.imageUrl}
+                        alt={item.garmentName}
+                        style={{
+                          width: "100%",
+                          height: 140,
+                          objectFit: "cover",
+                          borderRadius: 14,
+                          marginBottom: 8,
+                        }}
+                      />
+                    )}
 
-{/* Checkout modal */}
-{selectedItem && (
-<div
-style={{
-position: "fixed",
-inset: 0,
-background: "rgba(0,0,0,0.35)",
-display: "flex",
-justifyContent: "center",
-alignItems: "center",
-zIndex: 100,
-}}
->
-<div
-style={{
-width: "100%",
-maxWidth: 600,
-background: "white",
-padding: 22,
-borderRadius: 22,
-}}
->
-<h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-  {/* Success message */}
-{purchaseComplete && (
-<div
-style={{
-marginTop: 24,
-padding: 12,
-borderRadius: 16,
-background: "#ECFDF5",
-color: "#047857",
-fontSize: 14,
-textAlign: "center",
-}}
->
-success
-</div>
-)}
-Checkout: {paymentLabel}
-</h3>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: "#4c3e6d",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {item.garmentName}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "#6b7280",
+                        marginBottom: 6,
+                      }}
+                    >
+                      {item.createdAt || "Minted on-chain"}
+                    </div>
 
-{atomicOps && (
-<ul style={{ marginTop: 12, fontSize: 13 }}>
-{atomicOps.map((op) => (
-<li key={op.id}>• {op.label}</li>
-))}
-</ul>
-)}
+                    {item.assetId && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#9B6FE2",
+                          marginBottom: 6,
+                        }}
+                      >
+                        Passport ID:{" "}
+                        <span style={{ fontWeight: 600 }}>#{item.assetId}</span>
+                      </div>
+                    )}
 
-<button
-style={{
-marginTop: 18,
-padding: "10px 16px",
-borderRadius: 999,
-width: "100%",
-background: "#9B6FE2",
-color: "white",
-}}
-onClick={handleConfirmAtomicPurchase}
-disabled={!connected || sending}
->
-{sending ? "Processing..." : "Confirm purchase"}
-</button>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#374151",
+                        marginTop: 4,
+                      }}
+                    >
+                      Demo price label:{" "}
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: "#111827",
+                        }}
+                      >
+                        1 ALGO / 1 dUSD
+                      </span>
+                    </div>
+                  </div>
 
-<button
-style={{
-marginTop: 10,
-width: "100%",
-padding: "10px",
-borderRadius: 999,
-background: "#F3F4F6",
-}}
-onClick={() => {
-setSelectedItem(null);
-setAtomicOps(null);
-}}
->
-Cancel
-</button>
-</div>
-</div>
-)}
-</div>
-</div>
-);
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      marginTop: 10,
+                    }}
+                  >
+                    {item.assetId ? (
+                      <a
+                        href={`${LORA}/asset/${item.assetId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          fontSize: 12,
+                          textDecoration: "underline",
+                          color: "#6b21a8",
+                        }}
+                      >
+                        View Passport on Lora ↗️
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+                        Demo item (no on-chain link)
+                      </span>
+                    )}
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        onClick={() => handleOpenCheckout(item, "ALGO")}
+                        style={{
+                          flex: 1,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "none",
+                          cursor: "pointer",
+                          background:
+                            "linear-gradient(135deg, #4F46E5, #7C3AED)",
+                          color: "#fff",
+                          fontWeight: 600,
+                          fontSize: 11,
+                        }}
+                      >
+                        Buy with 1 ALGO
+                      </button>
+                      <button
+                        onClick={() => handleOpenCheckout(item, "DUSD")}
+                        style={{
+                          flex: 1,
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px solid #9B6FE2",
+                          cursor: "pointer",
+                          background: "#ffffff",
+                          color: "#6b21a8",
+                          fontWeight: 600,
+                          fontSize: 11,
+                        }}
+                      >
+                        Buy with 1 dUSD
+                      </button>
+                      <button
+                        onClick={() => handleOpenCheckout(item, "BOTH")}
+                        style={{
+                          flexBasis: "100%",
+                          padding: "8px 10px",
+                          borderRadius: 999,
+                          border: "1px dashed #F97316",
+                          cursor: "pointer",
+                          background: "#FFFBEB",
+                          color: "#C2410C",
+                          fontWeight: 600,
+                          fontSize: 11,
+                        }}
+                      >
+                        Atomic: 1 ALGO + 1 dUSD
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Checkout Modal */}
+        {selectedItem && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.35)",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 100,
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: 720,
+                background: "#ffffff",
+                padding: 22,
+                borderRadius: 22,
+                boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 10,
+                }}
+              >
+                <div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: 18,
+                      fontWeight: 700,
+                      color: "#4c3e6d",
+                    }}
+                  >
+                    Checkout (Atomic Transfer POC)
+                  </h3>
+                  <p
+                    style={{
+                      margin: 0,
+                      marginTop: 4,
+                      fontSize: 13,
+                      color: "#6b7280",
+                    }}
+                  >
+                    Your wallet will sign a grouped transaction simulating{" "}
+                    <strong>{paymentLabel}</strong> plus NFT passport in one
+                    atomic operation.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedItem(null);
+                    setAtomicOps(null);
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    fontSize: 20,
+                    cursor: "pointer",
+                    color: "#6b7280",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.2fr 1fr",
+                  gap: 16,
+                  marginTop: 8,
+                }}
+              >
+                {/* Details + Atomic steps */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#111827",
+                      marginBottom: 4,
+                    }}
+                  >
+                    {selectedItem.garmentName}
+                  </div>
+                  {selectedItem.assetId && (
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#6b21a8",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Passport ID: #{selectedItem.assetId}
+                    </div>
+                  )}
+
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "#6b7280",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    In this proof-of-concept, the same wallet plays both the
+                    consumer and designer roles. The goal is to show how Atomic
+                    Transfers bundle multiple payment and NFT operations
+                    together on Algorand TestNet.
+                  </p>
+
+                  {selectedItem.assetId && (
+                    <a
+                      href={`${LORA}/asset/${selectedItem.assetId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "inline-block",
+                        marginTop: 6,
+                        fontSize: 12,
+                        color: "#2563eb",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Inspect Digital Passport on Lora ↗️
+                    </a>
+                  )}
+
+                  {atomicOps && (
+                    <div
+                      style={{
+                        marginTop: 14,
+                        padding: "10px 12px",
+                        borderRadius: 14,
+                        background: "rgba(243,244,246,0.9)",
+                        border: "1px dashed #D1D5DB",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "#4b5563",
+                          marginBottom: 6,
+                        }}
+                      >
+                        Atomic group steps
+                      </div>
+                      <ul
+                        style={{
+                          listStyle: "disc",
+                          paddingLeft: 16,
+                          margin: 0,
+                        }}
+                      >
+                        {atomicOps.map((op) => (
+                          <li
+                            key={op.id}
+                            style={{
+                              fontSize: 12,
+                              color: "#4b5563",
+                              marginBottom: 3,
+                            }}
+                          >
+                            {op.label}
+                          </li>
+                        ))}
+                      </ul>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        On Algorand, atomic groups are all-or-nothing: all
+                        transactions in the group must be valid for the overall
+                        operation to succeed.
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 14 }}>
+                    <button
+                      onClick={handleConfirmAtomicPurchase}
+                      disabled={!connected || sending}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 999,
+                        border: "none",
+                        background: !connected
+                          ? "#e5e7eb"
+                          : "linear-gradient(135deg, #F27BAF, #9B6FE2)",
+                        color: !connected ? "#6b7280" : "#ffffff",
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: !connected ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {connected
+                        ? sending
+                          ? "Processing atomic transfer..."
+                          : `Confirm ${paymentLabel} purchase`
+                        : "Connect wallet to continue"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* QR */}
+                <div
+                  style={{
+                    borderRadius: 18,
+                    border: "1px dashed #D0CFCF",
+                    padding: 12,
+                    background: "#F9FAFB",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  {qrUrl ? (
+                    <>
+                      <img
+                        src={qrUrl}
+                        alt="Purchase QR"
+                        style={{
+                          width: 160,
+                          height: 160,
+                          borderRadius: 16,
+                          background: "#ffffff",
+                        }}
+                      />
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          textAlign: "center",
+                        }}
+                      >
+                        QR encodes the asset ID and payment type ({paymentLabel})
+                        for POC reference.
+                      </div>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "#9CA3AF" }}>
+                      QR will appear here
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 export default Consumer;
