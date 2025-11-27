@@ -1,5 +1,3 @@
-// src/App.tsx
-
 import React from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
@@ -19,31 +17,79 @@ import {
   WalletManager,
   WalletProvider,
 } from "@txnlab/use-wallet-react";
+import { Analytics } from "@vercel/analytics/react";
+import { SnackbarProvider } from "notistack";
 
 const walletManager = new WalletManager({
   wallets: [WalletId.PERA, WalletId.DEFLY, WalletId.EXODUS],
   defaultNetwork: NetworkId.TESTNET,
 });
 
+// نبني دوال بسيطة عشان نرضي الـ props المطلوبة من الكومبوننتات
+// نستخدم any عشان ما يتضارب مع تعريف الواجهات داخل الملفات الأخرى
+const openModal: any = (..._args: any[]) => {
+  // تقدرِيين لاحقاً تخليها تفتح Snackbar أو Dialog حقيقي
+  console.log("openModal called with:", _args);
+};
+
+const setModalState: any = (..._args: any[]) => {
+  console.log("setModalState called with:", _args);
+};
+
 const App: React.FC = () => {
   return (
-    <ErrorBoundary>
-      <WalletProvider manager={walletManager}>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/designer" element={<Designer />} />
-            <Route path="/consumer" element={<Consumer />} />
+    <SnackbarProvider maxSnack={3}>
+      <ErrorBoundary>
+        <WalletProvider manager={walletManager}>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/designer" element={<Designer />} />
+              <Route path="/consumer" element={<Consumer />} />
 
-            {/* original templates */}
-            <Route path="/transact" element={<Transact />} />
-            <Route path="/tokenmint" element={<Tokenmint />} />
-            <Route path="/nftmint" element={<NFTmint />} />
-            <Route path="/appcalls" element={<AppCalls />} />
-          </Routes>
-        </BrowserRouter>
-      </WalletProvider>
-    </ErrorBoundary>
+              {/* شاشات القالب الأصلية مع تمرير openModal و setModalState */}
+              <Route
+                path="/transact"
+                element={
+                  <Transact
+                    openModal={openModal}
+                    setModalState={setModalState}
+                  />
+                }
+              />
+              <Route
+                path="/tokenmint"
+                element={
+                  <Tokenmint
+                    openModal={openModal}
+                    setModalState={setModalState}
+                  />
+                }
+              />
+              <Route
+                path="/nftmint"
+                element={
+                  <NFTmint
+                    openModal={openModal}
+                    setModalState={setModalState}
+                  />
+                }
+              />
+              <Route
+                path="/appcalls"
+                element={
+                  <AppCalls
+                    openModal={openModal}
+                    setModalState={setModalState}
+                  />
+                }
+              />
+            </Routes>
+          </BrowserRouter>
+          <Analytics />
+        </WalletProvider>
+      </ErrorBoundary>
+    </SnackbarProvider>
   );
 };
 
