@@ -13,12 +13,12 @@ interface StoredDesign {
   id: number;
   garmentName: string;
   createdAt?: string;
-  assetId?: number;
-  imageUrl?: string; // optional image from designer page (if stored later)
+  assetId?: number;       // موجود فقط للـ NFTs الحقيقية من صفحة المصمم
+  imageUrl?: string;      // صورة المنتج (ثابتة أو جاية من المصمم لاحقاً)
 }
 
 interface ConsumerItem extends StoredDesign {
-  priceDusd: number; // demo price label
+  priceDusd: number;      // demo label
 }
 
 interface AtomicOp {
@@ -29,7 +29,7 @@ interface AtomicOp {
 type PaymentType = "ALGO" | "DUSD" | "BOTH";
 
 interface ConsumerStats {
-  totalItems: number; // عدد القطع التي تم شراؤها (كل عملية شراء = قطعة)
+  totalItems: number;     // عدد القطع المشتراة (كم عملية شراء)
 }
 
 interface PurchaseRecord {
@@ -45,11 +45,11 @@ interface PurchaseRecord {
 const LORA = "https://lora.algokit.io/testnet";
 const STATS_KEY = "etoile_consumer_purchases";
 
-// USDC TestNet ASA (used as dUSD in the demo)
+// USDC TestNet ASA (نستخدمه كـ dUSD في الديمو)
 const DUSD_ASA_ID = 10458941n;
 const DUSD_DECIMALS = 6;
 
-// ---------- helpers: stats ----------
+// -------------- helpers: stats --------------
 function recordPurchase(
   wallet: string,
   item: ConsumerItem,
@@ -63,11 +63,9 @@ function recordPurchase(
     let algoAmount = 0;
     let dusdAmount = 0;
 
-    if (paymentType === "ALGO") {
-      algoAmount = 1;
-    } else if (paymentType === "DUSD") {
-      dusdAmount = 1;
-    } else if (paymentType === "BOTH") {
+    if (paymentType === "ALGO") algoAmount = 1;
+    else if (paymentType === "DUSD") dusdAmount = 1;
+    else if (paymentType === "BOTH") {
       algoAmount = 1;
       dusdAmount = 1;
     }
@@ -81,6 +79,7 @@ function recordPurchase(
       txId,
       timestamp: new Date().toISOString(),
     });
+
     localStorage.setItem(STATS_KEY, JSON.stringify(list));
   } catch (e) {
     console.error("Failed to record purchase", e);
@@ -93,7 +92,10 @@ function loadStats(wallet: string | null | undefined): ConsumerStats {
     const raw = localStorage.getItem(STATS_KEY);
     const list: PurchaseRecord[] = raw ? JSON.parse(raw) : [];
     const mine = list.filter((r) => r.wallet === wallet);
-    return { totalItems: mine.length };
+
+    return {
+      totalItems: mine.length,
+    };
   } catch (e) {
     console.error("Failed to load stats", e);
     return { totalItems: 0 };
@@ -112,67 +114,60 @@ const Consumer: React.FC = () => {
   const [sending, setSending] = useState(false);
 
   const [stats, setStats] = useState<ConsumerStats>({ totalItems: 0 });
-  const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Algorand client
   const algodConfig = getAlgodConfigFromViteEnvironment();
   const algorand = AlgorandClient.fromConfig({ algodConfig });
 
-  // ---------- Load designs from localStorage + static demo products ----------
+  // --------- Load designs (real + demo) ----------
   useEffect(() => {
     try {
       const saved = localStorage.getItem("etoile_recent_designs");
-      let dynamicItems: ConsumerItem[] = [];
+      let dynamic: ConsumerItem[] = [];
 
       if (saved) {
         const parsed: StoredDesign[] = JSON.parse(saved);
-        const minted = parsed.filter((d) => d.assetId);
-
-        dynamicItems = minted.map((d) => ({
+        const mintedWithAssetId = parsed.filter((d) => d.assetId);
+        dynamic = mintedWithAssetId.map((d, idx) => ({
           ...d,
-          priceDusd: 49, // نفس السعر الديمو
+          priceDusd: 40 + idx * 5,
         }));
       }
 
-      // ديمو ثابت يضمن أن اللجنة تشوف منتجات وصور حتى لو ما في مصمم
-      const demoItems: ConsumerItem[] = [
+      // عناصر ثابتة بضمان إنها تظهر للجنة حتى لو ما فيه مصمم اشتغل
+      const demo: ConsumerItem[] = [
         {
           id: 1001,
-          garmentName: "Hot Pink Heels",
-          createdAt: "Demo • Not on-chain",
-          assetId: 111111,
+          garmentName: "Fuchsia Statement Heels",
+          createdAt: "Curated demo item",
+          // مافيه assetId → دفع فقط بدون NFT
           priceDusd: 49,
-          imageUrl: "/demo-heels.png", // ضع الصورة في public
+          imageUrl: "/demo-heel.png",
         },
         {
           id: 1002,
-          garmentName: "Cream Midi Skirt",
-          createdAt: "Demo • Not on-chain",
-          assetId: 222222,
+          garmentName: "Champagne Midi Skirt",
+          createdAt: "Curated demo item",
           priceDusd: 59,
           imageUrl: "/demo-skirt.png",
         },
         {
           id: 1003,
-          garmentName: "Gradient Jersey Tee",
-          createdAt: "Demo • Not on-chain",
-          assetId: 333333,
+          garmentName: "Gradient Sports Jersey",
+          createdAt: "Curated demo item",
           priceDusd: 69,
           imageUrl: "/demo-jersey.png",
         },
       ];
 
-      // أولاً المنتجات الحقيقية من المصمم (إن وجدت)، بعدها الديمو
-      const combined =
-        dynamicItems.length > 0 ? [...dynamicItems, ...demoItems] : demoItems;
-
-      setItems(combined);
+      setItems([...dynamic, ...demo]);
     } catch (e) {
       console.error("Failed to load designs for consumer view", e);
     }
   }, []);
 
-  // ---------- Load stats for current wallet ----------
+  // --------- stats for current wallet ----------
   useEffect(() => {
     const s = loadStats(activeAddress);
     setStats(s);
@@ -181,50 +176,40 @@ const Consumer: React.FC = () => {
   const handleOpenCheckout = (item: ConsumerItem, paymentType: PaymentType) => {
     setSelectedItem(item);
     setSelectedPayment(paymentType);
-    setPurchaseMessage(null);
+    setSuccessMessage(null); // نرجع نخفي رسالة النجاح عند شراء جديد
 
     const ops: AtomicOp[] = [];
 
+    const isRealNFT = typeof item.assetId === "number" && item.assetId > 0;
+
     if (paymentType === "ALGO") {
-      ops.push({
-        id: 1,
-        label: "Self-payment of 1 ALGO (POC: buyer = seller wallet)",
-      });
-      ops.push({
-        id: 2,
-        label: "Self-transfer of NFT passport to the same wallet",
-      });
+      ops.push({ id: 1, label: "Pay 1 ALGO (TestNet, POC)" });
     } else if (paymentType === "DUSD") {
-      ops.push({
-        id: 1,
-        label: "Self-payment of 1 dUSD (USDC TestNet ASA)",
-      });
-      ops.push({
-        id: 2,
-        label: "Self-transfer of NFT passport to the same wallet",
-      });
+      ops.push({ id: 1, label: "Pay 1 dUSD (USDC ASA 10458941)" });
     } else if (paymentType === "BOTH") {
+      ops.push({ id: 1, label: "Pay 1 ALGO" });
+      ops.push({ id: 2, label: "Pay 1 dUSD (USDC ASA 10458941)" });
+    }
+
+    if (isRealNFT) {
       ops.push({
-        id: 1,
-        label: "Self-payment of 1 ALGO",
+        id: 99,
+        label: "Transfer NFT passport in the same atomic group",
       });
+    } else {
       ops.push({
-        id: 2,
-        label: "Self-payment of 1 dUSD (USDC TestNet ASA)",
-      });
-      ops.push({
-        id: 3,
-        label: "Self-transfer of NFT passport to the same wallet",
+        id: 99,
+        label: "Demo item: payment only, no NFT on-chain",
       });
     }
 
     setAtomicOps(ops);
   };
 
-  // Real Atomic Transfer on TestNet (POC: buyer = seller = same wallet)
+  // --------- Atomic Transfer (POC) ----------
   const handleConfirmAtomicPurchase = async () => {
-    if (!selectedItem || !selectedItem.assetId) {
-      alert("Missing NFT asset ID for this item.");
+    if (!selectedItem) {
+      alert("No item selected.");
       return;
     }
     if (!activeAddress || !transactionSigner) {
@@ -237,47 +222,40 @@ const Consumer: React.FC = () => {
       const wallet = activeAddress;
       const group = algorand.newGroup();
 
-      if (selectedPayment === "ALGO") {
+      // الدفع حسب نوعه
+      if (selectedPayment === "ALGO" || selectedPayment === "BOTH") {
         group.addPayment({
           signer: transactionSigner,
           sender: wallet,
-          receiver: wallet,
+          receiver: wallet, // POC: self-payment
           amount: algo(1),
         });
-      } else if (selectedPayment === "DUSD") {
+      }
+
+      if (selectedPayment === "DUSD" || selectedPayment === "BOTH") {
         const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
         group.addAssetTransfer({
           signer: transactionSigner,
           sender: wallet,
-          receiver: wallet,
-          assetId: DUSD_ASA_ID,
-          amount: oneDusd,
-        });
-      } else if (selectedPayment === "BOTH") {
-        group.addPayment({
-          signer: transactionSigner,
-          sender: wallet,
-          receiver: wallet,
-          amount: algo(1),
-        });
-        const oneDusd = 1n * 10n ** BigInt(DUSD_DECIMALS);
-        group.addAssetTransfer({
-          signer: transactionSigner,
-          sender: wallet,
-          receiver: wallet,
+          receiver: wallet, // self-transfer
           assetId: DUSD_ASA_ID,
           amount: oneDusd,
         });
       }
 
-      // NFT self-transfer
-      group.addAssetTransfer({
-        signer: transactionSigner,
-        sender: wallet,
-        receiver: wallet,
-        assetId: BigInt(selectedItem.assetId),
-        amount: 1n,
-      });
+      // لو المنتج له assetId حقيقي من صفحة المصمم → ننقل NFT في نفس الجروب
+      const hasRealAssetId =
+        typeof selectedItem.assetId === "number" && selectedItem.assetId > 0;
+
+      if (hasRealAssetId) {
+        group.addAssetTransfer({
+          signer: transactionSigner,
+          sender: wallet,
+          receiver: wallet,
+          assetId: BigInt(selectedItem.assetId as number),
+          amount: 1n,
+        });
+      }
 
       const result = await group.send();
       const firstTx = result?.txIds?.[0];
@@ -287,25 +265,27 @@ const Consumer: React.FC = () => {
       else if (selectedPayment === "DUSD") label = "1 dUSD";
       else label = "1 ALGO + 1 dUSD";
 
-      setPurchaseMessage(
-        `Success: Atomic transfer completed for "${selectedItem.garmentName}" – ${label} + NFT passport in one group. TxID: ${firstTx}`
+      const extra = hasRealAssetId ? " + NFT passport" : "";
+      setSuccessMessage(
+        `Success: Atomic transfer completed for "${selectedItem.garmentName}" (${label}${extra}). TxID: ${firstTx}`
       );
 
-      // Update stats
-      recordPurchase(activeAddress!, selectedItem, selectedPayment, firstTx);
+      // سجّل الشراء وحدّث الإحصائية
+      recordPurchase(activeAddress, selectedItem, selectedPayment, firstTx);
       const s = loadStats(activeAddress);
       setStats(s);
 
-      // close modal
+      // غلق مودال الـ checkout
       setSelectedItem(null);
       setAtomicOps(null);
     } catch (e) {
       console.error(e);
       alert(
-        "Atomic transfer failed. Make sure your wallet has enough ALGO for fees and is opted into USDC (ASA 10458941) if you are using dUSD."
+        "Atomic transfer failed. Make sure your wallet has enough ALGO for fees and is opted in to USDC (ASA 10458941) if you are using dUSD."
       );
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const paymentLabel =
@@ -317,7 +297,7 @@ const Consumer: React.FC = () => {
 
   const qrUrl = selectedItem
     ? `https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encodeURIComponent(
-        `Etoile dApp | POC | asset=${selectedItem.assetId} | payment=${paymentLabel}`
+        `Etoile dApp | POC | asset=${selectedItem.assetId ?? "demo"} | payment=${paymentLabel}`
       )}`
     : "";
 
@@ -346,30 +326,12 @@ const Consumer: React.FC = () => {
         {/* Back to landing */}
         <BackToHomeButton />
 
-        {/* Success banner (always on top) */}
-        {purchaseMessage && (
-          <div
-            style={{
-              marginTop: 16,
-              marginBottom: 16,
-              padding: "10px 14px",
-              borderRadius: 18,
-              border: "1px solid rgba(37,99,235,0.25)",
-              background: "rgba(239,246,255,0.95)",
-              fontSize: 13,
-              color: "#1d4ed8",
-            }}
-          >
-            {purchaseMessage}
-          </div>
-        )}
-
         {/* Header */}
         <header
           style={{
             display: "flex",
             justifyContent: "space-between",
-            marginBottom: 24,
+            marginBottom: 16,
             flexWrap: "wrap",
             gap: 16,
           }}
@@ -386,8 +348,8 @@ const Consumer: React.FC = () => {
               Consumer Marketplace (POC)
             </h1>
             <p style={{ fontSize: 14, color: "#6b6a6a", marginTop: 4 }}>
-              Buyer and seller use the same wallet on Algorand TestNet. We only
-              showcase atomic grouping and wallet tracking in this phase.
+              Buyer and seller use the same wallet on Algorand TestNet. We
+              showcase atomic grouping and wallet-side purchase tracking.
             </p>
           </div>
 
@@ -452,6 +414,24 @@ const Consumer: React.FC = () => {
           </div>
         </header>
 
+        {/* Success banner (فوق الإحصائيات عشان يبان مباشرة) */}
+        {successMessage && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: "10px 14px",
+              borderRadius: 18,
+              border: "1px solid rgba(16,185,129,0.3)",
+              background:
+                "linear-gradient(135deg, rgba(187,240,237,0.5), rgba(16,185,129,0.08))",
+              fontSize: 13,
+              color: "#065f46",
+            }}
+          >
+            {successMessage}
+          </div>
+        )}
+
         <ConnectWallet
           openModal={walletModalOpen}
           closeModal={() => setWalletModalOpen(false)}
@@ -476,7 +456,9 @@ const Consumer: React.FC = () => {
               fontSize: 12,
             }}
           >
-            <div style={{ color: "#6b7280" }}>Items purchased (POC)</div>
+            <div style={{ color: "#6b7280" }}>
+              Total items purchased (POC)
+            </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
               {stats.totalItems}
             </div>
@@ -496,9 +478,9 @@ const Consumer: React.FC = () => {
             color: "#4c3e6d",
           }}
         >
-          In this POC, the same TestNet wallet plays the role of both consumer
-          and designer. The focus is on demonstrating Atomic Transfers and
-          tracking simulated spending.
+          Demo mode: static curated items are always visible for the judging
+          panel. Real designer-minted passports (with asset IDs) appear at the
+          top of the grid and use full Atomic Transfers (payment + NFT).
         </section>
 
         {/* Product grid */}
@@ -538,7 +520,7 @@ const Consumer: React.FC = () => {
                         alt={item.garmentName}
                         style={{
                           width: "100%",
-                          height: 140,
+                          height: 150,
                           objectFit: "cover",
                           borderRadius: 14,
                           marginBottom: 8,
@@ -575,7 +557,9 @@ const Consumer: React.FC = () => {
                         }}
                       >
                         Passport ID:{" "}
-                        <span style={{ fontWeight: 600 }}>#{item.assetId}</span>
+                        <span style={{ fontWeight: 600 }}>
+                          #{item.assetId}
+                        </span>
                       </div>
                     )}
 
@@ -621,7 +605,7 @@ const Consumer: React.FC = () => {
                       </a>
                     ) : (
                       <span style={{ fontSize: 11, color: "#9CA3AF" }}>
-                        Demo item (no on-chain link)
+                        Demo item (no on-chain passport)
                       </span>
                     )}
 
@@ -739,8 +723,10 @@ const Consumer: React.FC = () => {
                     }}
                   >
                     Your wallet will sign a grouped transaction simulating{" "}
-                    <strong>{paymentLabel}</strong> plus NFT passport in one
-                    atomic operation.
+                    <strong>{paymentLabel}</strong>{" "}
+                    {selectedItem.assetId
+                      ? "+ NFT passport in the same atomic group."
+                      : "(demo: payment only, no NFT on-chain)."}
                   </p>
                 </div>
                 <button
@@ -799,10 +785,10 @@ const Consumer: React.FC = () => {
                       lineHeight: 1.5,
                     }}
                   >
-                    In this proof-of-concept, the same wallet plays both the
-                    consumer and designer roles. The goal is to show how Atomic
-                    Transfers bundle multiple payment and NFT operations
-                    together on Algorand TestNet.
+                    In this proof-of-concept, the same TestNet wallet plays both
+                    the consumer and designer roles. Atomic Transfers let us
+                    bundle payment and NFT operations together, or just payment
+                    for curated demo items.
                   </p>
 
                   {selectedItem.assetId && (
@@ -935,8 +921,8 @@ const Consumer: React.FC = () => {
                           textAlign: "center",
                         }}
                       >
-                        QR encodes the asset ID and payment type ({paymentLabel})
-                        for POC reference.
+                        QR encodes the asset ID (or demo tag) and payment type (
+                        {paymentLabel}) for POC reference.
                       </div>
                     </>
                   ) : (
